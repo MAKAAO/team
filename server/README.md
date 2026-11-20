@@ -1,6 +1,6 @@
-# Team Work API — first milestone
+# Team Work API
 
-This API supports team sign-in, admin-created staff accounts, online heartbeat, and team file exchange. Screen streaming, voice/video calls, and remote input are not implemented in this first milestone; they need a separate WebRTC and support-session integration with visible user consent.
+Node.js API for one-time staff pairing, device presence, team file exchange, and short-lived meeting codes.
 
 ## Run with Docker
 
@@ -11,18 +11,23 @@ This API supports team sign-in, admin-created staff accounts, online heartbeat, 
       -e ADMIN_PASSWORD='choose-a-long-temporary-password' \
       -v team-work-data:/app/data team-work-api
 
-Put the service behind an HTTPS reverse proxy before connecting phones. Preserve /app/data for the SQLite database and shared files. Set the same HTTPS URL in each APK at sign-in.
+Put the service behind an HTTPS reverse proxy before connecting phones. Preserve /app/data for the SQLite database and shared files. Set the same HTTPS URL in the clients.
 
-The admin logs in using ADMIN_EMAIL and ADMIN_PASSWORD. Create staff accounts by sending POST /api/staff with the admin bearer token and JSON containing email and password. Temporary passwords must have at least 12 characters.
+The admin signs in using ADMIN_EMAIL and ADMIN_PASSWORD, then creates pairing codes in the admin client. Each code is single-use and expires after 10 minutes. Staff enter their name and code; the API creates their account and returns a device token. No open staff registration route is provided.
 
 ## Endpoints
 
-- POST /api/login: email, password, and role (admin or staff)
-- POST /api/staff: admin creates a staff account
+- POST /api/login: admin credentials and role (admin)
+- POST /api/pairing-codes: admin-only, returns one-time 10-character pairing code
+- POST /api/pair: staff name and pairing code; creates staff account/device token
 - POST /api/heartbeat: authenticated device presence
 - GET /api/devices: admin device presence
-- POST /api/files: upload one selected file (100 MB maximum)
+- POST /api/files: upload one or more explicitly selected files (100 MB maximum per file)
 - GET /api/files: list team files
 - GET /api/files/:id/download: download a shared file
+- POST /api/meetings: admin creates a short-lived meeting code
+- POST /api/meetings/join: paired admin/staff validates and joins a meeting code
 
-Use TLS, a strong JWT secret, and regular backups. Do not expose the development server directly to the public internet.
+Use TLS, a strong JWT secret, and regular backups. Do not expose the development server directly to the public internet. For private team calls, configure an authenticated Jitsi server; the default public Jitsi service is suitable only for basic testing.
+
+Android uses system document selection for file access and asks the device owner before starting mic, camera, or screen capture. Android remote touch control is not implemented.
