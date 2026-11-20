@@ -28,7 +28,8 @@ db.exec([
   "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('admin','staff')), display_name TEXT)",
   "CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, label TEXT NOT NULL, last_seen INTEGER NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id))",
   "CREATE TABLE IF NOT EXISTS files (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL, stored_name TEXT NOT NULL, size INTEGER NOT NULL, created_at INTEGER NOT NULL, FOREIGN KEY(owner_id) REFERENCES users(id))",
-  "CREATE TABLE IF NOT EXISTS pairing_codes (code_hash TEXT PRIMARY KEY, created_by TEXT NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER)"
+  "CREATE TABLE IF NOT EXISTS pairing_codes (code_hash TEXT PRIMARY KEY, created_by TEXT NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER)",
+  "CREATE TABLE IF NOT EXISTS meetings (room_code TEXT PRIMARY KEY, created_by TEXT NOT NULL, expires_at INTEGER NOT NULL)"
 ].join(";"));
 const userColumns = db.prepare("PRAGMA table_info(users)").all().map(row => row.name);
 if (!userColumns.includes("display_name")) db.exec("ALTER TABLE users ADD COLUMN display_name TEXT");
@@ -102,6 +103,24 @@ app.post("/api/pair", (req, res) => {
     if (error.message === "PAIR_CODE_INVALID") return res.status(410).json({ error: "Pairing code is invalid, expired, or already used." });
     res.status(500).json({ error: "Could not complete device pairing." });
   }
+});
+const roomAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function newRoomCode() {
+  const bytes = crypto.randomBytes(14);
+  return Array.from(bytes, value => roomAlphabet[value % roomAlphabet.length]).join("");
+}
+app.post("/api/meetings", auth, adminOnly, (req, res) => {
+  const roomCode = newRoomCode();
+  const expiresAt = Date.now() + 60 * 60 * 1000;
+  db.prepare("INSERT INTO meetings(room_code,created_by,expires_at) VALUES(?,?,?)")
+    .run(roomCode, req.user.id, expiresAt);
+  res.status(201).json({ roomCode, expiresAt });
+});
+app.post("/api/meetings/join", auth, (req, res) => {
+  const roomCode = String(req.body.roomCode || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const meeting = db.prepare("SELECT room_code,expires_at FROM meetings WHERE room_code=?").get(roomCode);
+  if (!meeting || meeting.expires_at < Date.now()) return res.status(410).json({ error: "Meeting code is invalid or expired." });
+  res.json({ roomCode: meeting.room_code, expiresAt: meeting.expires_at });
 });
 app.post("/api/heartbeat", auth, (req, res) => {
   const deviceId = String(req.body.deviceId || req.user.id).slice(0, 100);
