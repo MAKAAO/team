@@ -26,7 +26,10 @@ class MainActivity : Activity() {
     private lateinit var serverInput: EditText
     private lateinit var emailInput: EditText
     private lateinit var passwordInput: EditText
+    private lateinit var staffNameInput: EditText
+    private lateinit var pairingCodeInput: EditText
     private lateinit var content: LinearLayout
+    private var pairingCodeView: TextView? = null
     private var token: String? = null
     private val isAdmin get() = BuildConfig.APP_ROLE == "admin"
     private val pickFile = 501
@@ -43,16 +46,8 @@ class MainActivity : Activity() {
         draw()
         if (token != null) loadDashboard()
     }
-
-    override fun onResume() {
-        super.onResume()
-        handler.post(presenceLoop)
-    }
-
-    override fun onPause() {
-        handler.removeCallbacks(presenceLoop)
-        super.onPause()
-    }
+    override fun onResume() { super.onResume(); handler.post(presenceLoop) }
+    override fun onPause() { handler.removeCallbacks(presenceLoop); super.onPause() }
 
     private fun draw() {
         root = LinearLayout(this).apply {
@@ -62,28 +57,31 @@ class MainActivity : Activity() {
         }
         root.addView(TextView(this).apply {
             text = "TEAM WORK\n" + if (isAdmin) "ADMIN CONSOLE" else "STAFF SPACE"
-            textSize = 25f
-            setTextColor(0xFF152442.toInt())
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 4, 0, 22)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textSize = 25f; setTextColor(0xFF152442.toInt()); gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 4, 0, 22); typeface = android.graphics.Typeface.DEFAULT_BOLD
         })
         status = TextView(this).apply {
-            text = "Private team workspace"
-            textSize = 14f
-            setTextColor(0xFF596579.toInt())
+            text = "Private team workspace"; textSize = 14f; setTextColor(0xFF596579.toInt())
             setPadding(0, 0, 0, 18)
         }
         root.addView(status)
         serverInput = edit("Secure server URL (https://…)", prefs.getString("server", "https://team.example.com") ?: "")
         root.addView(serverInput)
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        if (token == null) {
-            emailInput = edit("Team email", "")
-            passwordInput = edit("Password", "").apply { inputType = 129 }
-            root.addView(emailInput)
-            root.addView(passwordInput)
-            root.addView(button("Sign in", 0xFFF05A28.toInt()) { login() })
+        if (token == null && isAdmin) {
+            emailInput = edit("Admin email", "")
+            passwordInput = edit("Admin password", "").apply { inputType = 129 }
+            root.addView(emailInput); root.addView(passwordInput)
+            root.addView(button("Admin sign in", 0xFFF05A28.toInt()) { loginAdmin() })
+        } else if (token == null) {
+            staffNameInput = edit("Your name", "")
+            pairingCodeInput = edit("Pairing code from your admin", "").apply {
+                setSingleLine(true)
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+            }
+            root.addView(staffNameInput); root.addView(pairingCodeInput)
+            root.addView(button("Pair this device", 0xFFF05A28.toInt()) { pairStaffDevice() })
+            root.addView(note("Ask your admin for a one-time code. No email or password is needed."))
         } else {
             root.addView(button("Refresh", 0xFF152442.toInt()) { loadDashboard() })
             root.addView(button("Sign out", 0xFF707A8C.toInt()) { logout() })
@@ -93,47 +91,58 @@ class MainActivity : Activity() {
     }
 
     private fun edit(hintText: String, value: String) = EditText(this).apply {
-        hint = hintText
-        setText(value)
-        textSize = 15f
-        setSingleLine(true)
-        setPadding(16, 10, 16, 10)
+        hint = hintText; setText(value); textSize = 15f; setSingleLine(true); setPadding(16, 10, 16, 10)
     }
-
     private fun button(label: String, color: Int, action: () -> Unit) = Button(this).apply {
-        text = label
-        setTextColor(-1)
+        text = label; setTextColor(-1)
         setBackgroundTintList(android.content.res.ColorStateList.valueOf(color))
         setOnClickListener { action() }
     }
 
-    private fun login() {
+    private fun loginAdmin() {
         val base = serverInput.text.toString().trim().trimEnd('/')
-        if (!base.startsWith("https://")) {
-            toast("Use a secure HTTPS server address.")
-            return
-        }
+        if (!base.startsWith("https://")) { toast("Use a secure HTTPS server address."); return }
         prefs.edit().putString("server", base).apply()
         val payload = JSONObject().put("email", emailInput.text.toString().trim())
-            .put("password", passwordInput.text.toString())
-            .put("role", BuildConfig.APP_ROLE).toString().toByteArray()
+            .put("password", passwordInput.text.toString()).put("role", "admin").toString().toByteArray()
         status.text = "Connecting securely…"
         io.execute {
             try {
                 val body = JSONObject(String(http(base + "/api/login", "POST", payload, null), Charsets.UTF_8))
                 val newToken = body.getString("token")
-                if (body.getJSONObject("user").getString("role") != BuildConfig.APP_ROLE)
-                    throw IllegalStateException("This account is not authorized for this app.")
-                runOnUiThread {
-                    token = newToken
-                    prefs.edit().putString("token", newToken).apply()
-                    draw()
-                    loadDashboard()
-                }
+                if (body.getJSONObject("user").getString("role") != "admin")
+                    throw IllegalStateException("This account is not an admin.")
+                runOnUiThread { saveToken(newToken) }
             } catch (e: Exception) {
                 runOnUiThread { status.text = "Sign in failed: " + (e.message ?: "check server") }
             }
         }
+    }
+
+    private fun pairStaffDevice() {
+        val base = serverInput.text.toString().trim().trimEnd('/')
+        val name = staffNameInput.text.toString().trim()
+        val code = pairingCodeInput.text.toString().trim().uppercase()
+        if (!base.startsWith("https://")) { toast("Enter the secure server URL."); return }
+        if (name.length < 2 || code.length != 10) { toast("Enter your name and the 10-character admin code."); return }
+        prefs.edit().putString("server", base).apply()
+        status.text = "Pairing this device…"
+        val payload = JSONObject().put("displayName", name).put("code", code).toString().toByteArray()
+        io.execute {
+            try {
+                val body = JSONObject(String(http(base + "/api/pair", "POST", payload, null), Charsets.UTF_8))
+                runOnUiThread { saveToken(body.getString("token")) }
+            } catch (e: Exception) {
+                runOnUiThread { status.text = "Pairing failed: " + (e.message ?: "check the code") }
+            }
+        }
+    }
+
+    private fun saveToken(value: String) {
+        token = value
+        prefs.edit().putString("token", value).apply()
+        draw()
+        loadDashboard()
     }
 
     private fun loadDashboard() {
@@ -143,26 +152,22 @@ class MainActivity : Activity() {
         status.text = "Loading team workspace…"
         content.removeAllViews()
         if (!isAdmin) {
+            content.addView(note("This device is paired to your team."))
             content.addView(button("Choose and share files", 0xFFF05A28.toInt()) {
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    type = "*/*"
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                    type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE); putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                 }
                 startActivityForResult(intent, pickFile)
             })
             content.addView(note("Only files you choose are shared with the team."))
-            content.addView(note("Screen sharing, calls, and remote control are not enabled in this APK yet."))
+            content.addView(note("Screen sharing, calls, and remote control are not enabled in this build."))
             sendHeartbeat()
         } else {
-            content.addView(note("Add a staff account"))
-            val staffEmail = edit("Staff email", "")
-            val staffPassword = edit("Temporary password (12+ characters)", "").apply { inputType = 129 }
-            content.addView(staffEmail)
-            content.addView(staffPassword)
-            content.addView(button("Create staff account", 0xFFF05A28.toInt()) {
-                createStaff(staffEmail.text.toString().trim(), staffPassword.text.toString())
-            })
+            content.addView(note("Pair a staff device"))
+            content.addView(button("Generate one-time pairing code", 0xFFF05A28.toInt()) { createPairingCode() })
+            pairingCodeView = note("Pairing codes appear here and expire after 10 minutes.")
+            content.addView(pairingCodeView)
+            content.addView(note("Share each code privately. It can be used once."))
             content.addView(note("Team devices"))
             io.execute {
                 try {
@@ -172,12 +177,11 @@ class MainActivity : Activity() {
                         for (i in 0 until devices.length()) {
                             val item = devices.getJSONObject(i)
                             val state = if (item.optBoolean("online")) "ONLINE" else "OFFLINE"
-                            content.addView(note(state + "  ·  " + item.optString("email") + "  ·  " + item.optString("label")))
+                            val who = item.optString("display_name", item.optString("email"))
+                            content.addView(note(state + "  ·  " + who + "  ·  " + item.optString("label")))
                         }
                     }
-                } catch (e: Exception) {
-                    runOnUiThread { content.addView(note("Device list unavailable: " + e.message)) }
-                }
+                } catch (e: Exception) { runOnUiThread { content.addView(note("Device list unavailable: " + e.message)) } }
             }
             content.addView(note("Shared team files"))
             io.execute {
@@ -186,35 +190,30 @@ class MainActivity : Activity() {
                     runOnUiThread {
                         for (i in 0 until files.length()) {
                             val item = files.getJSONObject(i)
-                            content.addView(button("Download  " + item.optString("name") + "  ·  " + item.optString("owner"), 0xFF243C68.toInt()) {
+                            content.addView(button("Download  " + item.optString("name") + "  ·  " + item.optString("owner_name", item.optString("owner")), 0xFF243C68.toInt()) {
                                 download(item.getString("id"), item.optString("name"))
                             })
                         }
                         if (files.length() == 0) content.addView(note("No team files have been shared yet."))
                     }
-                } catch (e: Exception) {
-                    runOnUiThread { status.text = "Could not load team files: " + e.message }
-                }
+                } catch (e: Exception) { runOnUiThread { status.text = "Could not load team files: " + e.message } }
             }
-            content.addView(note("Live screen sessions and calls are planned for the next build."))
+            content.addView(note("Screen sessions, calls, and remote help are in the next feature build."))
         }
         status.text = "Connected to the team server"
     }
 
-    private fun createStaff(email: String, password: String) {
-        if (email.isBlank() || password.length < 12) {
-            toast("Enter a staff email and a temporary password of at least 12 characters.")
-            return
-        }
+    private fun createPairingCode() {
         val base = (prefs.getString("server", "") ?: "").trimEnd('/')
-        val payload = JSONObject().put("email", email).put("password", password).toString().toByteArray()
         io.execute {
             try {
-                http(base + "/api/staff", "POST", payload, token)
-                runOnUiThread { toast("Staff account created. Share the temporary password securely.") }
-            } catch (e: Exception) {
-                runOnUiThread { toast("Could not create account: " + e.message) }
-            }
+                val body = JSONObject(String(http(base + "/api/pairing-codes", "POST", JSONObject().toString().toByteArray(), token), Charsets.UTF_8))
+                val code = body.getString("code")
+                runOnUiThread {
+                    pairingCodeView?.text = "PAIRING CODE\n" + code + "\nExpires in 10 minutes"
+                    toast("Share this one-time code with one staff member.")
+                }
+            } catch (e: Exception) { runOnUiThread { toast("Could not create code: " + e.message) } }
         }
     }
 
@@ -226,9 +225,7 @@ class MainActivity : Activity() {
             .put("deviceId", android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID))
             .put("label", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL)
             .toString().toByteArray()
-        io.execute {
-            try { http(base + "/api/heartbeat", "POST", payload, auth) } catch (_: Exception) {}
-        }
+        io.execute { try { http(base + "/api/heartbeat", "POST", payload, auth) } catch (_: Exception) {} }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -246,8 +243,7 @@ class MainActivity : Activity() {
         val boundary = "TeamBoundary" + System.currentTimeMillis()
         val body = ByteArrayOutputStream().apply {
             write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"" + name.replace("\"", "_") + "\"\r\nContent-Type: application/octet-stream\r\n\r\n").toByteArray())
-            write(bytes)
-            write(("\r\n--" + boundary + "--\r\n").toByteArray())
+            write(bytes); write(("\r\n--" + boundary + "--\r\n").toByteArray())
         }.toByteArray()
         val base = (prefs.getString("server", "") ?: "").trimEnd('/')
         status.text = "Sharing " + name + "…"
@@ -255,9 +251,7 @@ class MainActivity : Activity() {
             try {
                 http(base + "/api/files", "POST", body, token, "multipart/form-data; boundary=" + boundary)
                 runOnUiThread { status.text = "Shared: " + name; toast("File shared with your team.") }
-            } catch (e: Exception) {
-                runOnUiThread { status.text = "Upload failed: " + e.message }
-            }
+            } catch (e: Exception) { runOnUiThread { status.text = "Upload failed: " + e.message } }
         }
     }
 
@@ -280,27 +274,21 @@ class MainActivity : Activity() {
                 val file = java.io.File(getExternalFilesDir(null)!!, safe)
                 file.writeBytes(bytes)
                 runOnUiThread { toast("Saved in app storage: " + file.name) }
-            } catch (e: Exception) {
-                runOnUiThread { toast("Download failed: " + e.message) }
-            }
+            } catch (e: Exception) { runOnUiThread { toast("Download failed: " + e.message) } }
         }
     }
 
     private fun http(url: String, method: String, body: ByteArray?, auth: String?, contentType: String = "application/json"): ByteArray {
         val conn = URL(url).openConnection() as HttpURLConnection
-        conn.requestMethod = method
-        conn.connectTimeout = 12000
-        conn.readTimeout = 30000
+        conn.requestMethod = method; conn.connectTimeout = 12000; conn.readTimeout = 30000
         auth?.let { conn.setRequestProperty("Authorization", "Bearer " + it) }
         if (body != null) {
-            conn.doOutput = true
-            conn.setRequestProperty("Content-Type", contentType)
+            conn.doOutput = true; conn.setRequestProperty("Content-Type", contentType)
             conn.outputStream.use { it.write(body) }
         }
         val code = conn.responseCode
         val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-        val bytes = stream.use { it.readBytes() }
-        conn.disconnect()
+        val bytes = stream.use { it.readBytes() }; conn.disconnect()
         if (code !in 200..299) throw IllegalStateException(String(bytes, Charsets.UTF_8).take(200))
         return bytes
     }
@@ -308,14 +296,8 @@ class MainActivity : Activity() {
     private fun note(value: String) = TextView(this).apply {
         text = value; textSize = 14f; setTextColor(0xFF596579.toInt()); setPadding(8, 12, 8, 12)
     }
-
     private fun logout() {
-        prefs.edit().remove("token").apply()
-        token = null
-        draw()
+        prefs.edit().remove("token").apply(); token = null; draw()
     }
-
-    private fun toast(message: String) = runOnUiThread {
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-    }
+    private fun toast(message: String) = runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
 }
