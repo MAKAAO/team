@@ -170,7 +170,7 @@ class MainActivity : Activity() {
                 startActivityForResult(intent, pickFile)
             })
             content.addView(note("Only files you choose are shared with the team."))
-            content.addView(note("Screen sharing, calls, and remote control are not enabled in this build."))
+            content.addView(note("Calls and screen sharing are available in meetings. Android asks before microphone, camera, or screen capture starts."))
             sendHeartbeat()
         } else {
             content.addView(note("Pair a staff device"))
@@ -210,7 +210,7 @@ class MainActivity : Activity() {
                     }
                 } catch (e: Exception) { runOnUiThread { status.text = "Could not load team files: " + e.message } }
             }
-            content.addView(note("Calls and screen sharing are available. Android remote touch control is not in this build."))
+            content.addView(note("Calls and screen sharing are available. Android remote touch control is not included in this version."))
         }
         status.text = "Connected to the team server"
     }
@@ -230,8 +230,8 @@ class MainActivity : Activity() {
     }
 
     private fun createMeeting() {
-        val base = (prefs.getString("server", "") ?: "").trimEnd("/")
-        val jitsi = jitsiServerInput.text.toString().trim().trimEnd("/")
+        val base = (prefs.getString("server", "") ?: "").trimEnd('/')
+        val jitsi = jitsiServerInput.text.toString().trim().trimEnd('/')
         if (!jitsi.startsWith("https://")) { toast("Use an HTTPS meeting server."); return }
         prefs.edit().putString("jitsiServer", jitsi).apply()
         io.execute {
@@ -244,8 +244,8 @@ class MainActivity : Activity() {
     }
 
     private fun joinMeeting(rawCode: String) {
-        val base = (prefs.getString("server", "") ?: "").trimEnd("/")
-        val jitsi = jitsiServerInput.text.toString().trim().trimEnd("/")
+        val base = (prefs.getString("server", "") ?: "").trimEnd('/')
+        val jitsi = jitsiServerInput.text.toString().trim().trimEnd('/')
         val code = rawCode.trim().uppercase()
         if (!jitsi.startsWith("https://")) { toast("Use an HTTPS meeting server."); return }
         if (code.length < 10) { toast("Enter the meeting code from your admin."); return }
@@ -261,7 +261,7 @@ class MainActivity : Activity() {
 
     private fun startMeeting(room: String) {
         try {
-            val meetingHost = URL((prefs.getString("jitsiServer", "https://meet.jit.si") ?: "https://meet.jit.si").trimEnd("/") + "/")
+            val meetingHost = URL((prefs.getString("jitsiServer", "https://meet.jit.si") ?: "https://meet.jit.si").trimEnd('/') + "/")
             val options = JitsiMeetConferenceOptions.Builder()
                 .setServerURL(meetingHost)
                 .setRoom("aao-team-" + room.lowercase())
