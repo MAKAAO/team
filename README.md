@@ -1,28 +1,26 @@
 # Team Work
 
-Team-only Android file sharing and device support for the AAO team.
+Private team file sharing and support meetings for AAO staff.
 
-## What is in this first build
+## Current build (0.2)
 
-- Staff APK: signs in, reports its device online while the app is open, and uploads files the staff member selects.
-- Admin APK: signs in, creates staff accounts, checks online devices, and downloads team files.
-- Server: authenticates admin/staff roles, stores uploaded files and presence records, and supplies the API.
-- GitHub Actions: builds separate staff and admin debug APKs.
+- Staff enroll with their name and a one-time 10-character pairing code issued by an admin. No staff email/password setup.
+- Admin APK signs in using the server's admin account, issues one-use pairing codes (10-minute expiry), sees device presence, lists shared files, and creates meeting codes.
+- Staff APK uploads files they explicitly select, downloads files shared with the team, and joins admin-created meetings.
+- Android meetings support voice/video calls and screen sharing through Jitsi Meet. Android shows its own permission and screen-capture consent prompts when those functions start.
+- Windows installer supports admin/staff sign-in, meetings, screen sharing, and consented remote control. The Windows user must approve remote control in a native allow/deny dialog.
+- Node API handles admin-only pairing-code generation, pairing, files, device presence, and short-lived meeting codes.
 
-The Android APKs do not install on PCs or laptops. A separate Windows desktop agent is not included yet.
-
-## Not included in this build
-
-Live screen sharing, voice/video calling, and remote touch control are still to be implemented. The current APKs should be used to try the account, presence, and file-sharing flow only.
+Android remote touch control is not included. Android file access is limited to files the person selects; the app does not silently read gallery, contacts, or other personal data.
 
 ## Build artifacts
 
-Open the latest successful run under Actions and download the team-work-debug-apks artifact. Each artifact ZIP contains:
-- staff/debug/app-staff-debug.apk
-- admin/debug/app-admin-debug.apk
+GitHub Actions builds separate staff and admin debug APKs plus a Windows installer. Get the latest successful builds from [GitHub Actions](https://github.com/MAKAAO/team/actions).
 
-## Server and first test
+## Setup
 
-Deploy the Node server from the server folder behind HTTPS. Set a strong JWT_SECRET, ADMIN_EMAIL, and ADMIN_PASSWORD, and preserve the server data volume. Sign in to the Admin APK using those credentials, create a staff account, then sign in to the Staff APK and choose a file to share. Enter the server's HTTPS address on both apps.
+Deploy the Node server in `server/` behind HTTPS, set a strong `JWT_SECRET`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD`, and persist `/app/data`. Enter that HTTPS API URL in both Android apps and the Windows client.
 
-See server/README.md for Docker setup and API details. The server must be deployed before the APKs can exchange files over the internet.
+The Android call/screen-share SDK needs an HTTPS Jitsi server. The public default is only for basic testing. For a team-only deployment, configure an authenticated private Jitsi server and restrict access to your team.
+
+See [server/README.md](server/README.md) and [desktop/README.md](desktop/README.md) for setup details.
