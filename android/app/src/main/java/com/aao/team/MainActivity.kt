@@ -12,6 +12,8 @@ import android.view.Gravity
 import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
+import org.jitsi.meet.sdk.JitsiMeetActivity
+import org.jitsi.meet.sdk.JitsiMeetConferenceOptions
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -28,6 +30,8 @@ class MainActivity : Activity() {
     private lateinit var passwordInput: EditText
     private lateinit var staffNameInput: EditText
     private lateinit var pairingCodeInput: EditText
+    private lateinit var meetingCodeInput: EditText
+    private lateinit var jitsiServerInput: EditText
     private lateinit var content: LinearLayout
     private var pairingCodeView: TextView? = null
     private var token: String? = null
@@ -67,6 +71,8 @@ class MainActivity : Activity() {
         root.addView(status)
         serverInput = edit("Secure server URL (https://…)", prefs.getString("server", "https://team.example.com") ?: "")
         root.addView(serverInput)
+        jitsiServerInput = edit("Meeting server URL", prefs.getString("jitsiServer", "https://meet.jit.si") ?: "https://meet.jit.si")
+        root.addView(jitsiServerInput)
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         if (token == null && isAdmin) {
             emailInput = edit("Admin email", "")
@@ -153,6 +159,10 @@ class MainActivity : Activity() {
         content.removeAllViews()
         if (!isAdmin) {
             content.addView(note("This device is paired to your team."))
+            meetingCodeInput = edit("Meeting code from admin", "")
+            content.addView(meetingCodeInput)
+            content.addView(button("Join support call / screen share", 0xFF243C68.toInt()) { joinMeeting(meetingCodeInput.text.toString()) })
+            content.addView(note("Android asks before microphone, camera, or screen sharing starts. Use the in-call screen-share control to share your display."))
             content.addView(button("Choose and share files", 0xFFF05A28.toInt()) {
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE); putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
@@ -168,6 +178,8 @@ class MainActivity : Activity() {
             pairingCodeView = note("Pairing codes appear here and expire after 10 minutes.")
             content.addView(pairingCodeView)
             content.addView(note("Share each code privately. It can be used once."))
+            content.addView(button("Start support call / screen share", 0xFF243C68.toInt()) { createMeeting() })
+            content.addView(note("Send the meeting code to one paired staff member."))
             content.addView(note("Team devices"))
             io.execute {
                 try {
@@ -198,7 +210,7 @@ class MainActivity : Activity() {
                     }
                 } catch (e: Exception) { runOnUiThread { status.text = "Could not load team files: " + e.message } }
             }
-            content.addView(note("Screen sessions, calls, and remote help are in the next feature build."))
+            content.addView(note("Calls and screen sharing are available. Android remote touch control is not in this build."))
         }
         status.text = "Connected to the team server"
     }
@@ -217,6 +229,50 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun createMeeting() {
+        val base = (prefs.getString("server", "") ?: "").trimEnd("/")
+        val jitsi = jitsiServerInput.text.toString().trim().trimEnd("/")
+        if (!jitsi.startsWith("https://")) { toast("Use an HTTPS meeting server."); return }
+        prefs.edit().putString("jitsiServer", jitsi).apply()
+        io.execute {
+            try {
+                val body = JSONObject(String(http(base + "/api/meetings", "POST", JSONObject().toString().toByteArray(), token), Charsets.UTF_8))
+                val room = body.getString("roomCode")
+                runOnUiThread { toast("Meeting code: " + room + " — share it with a paired staff member."); startMeeting(room) }
+            } catch (e: Exception) { runOnUiThread { toast("Could not create meeting: " + e.message) } }
+        }
+    }
+
+    private fun joinMeeting(rawCode: String) {
+        val base = (prefs.getString("server", "") ?: "").trimEnd("/")
+        val jitsi = jitsiServerInput.text.toString().trim().trimEnd("/")
+        val code = rawCode.trim().uppercase()
+        if (!jitsi.startsWith("https://")) { toast("Use an HTTPS meeting server."); return }
+        if (code.length < 10) { toast("Enter the meeting code from your admin."); return }
+        prefs.edit().putString("jitsiServer", jitsi).apply()
+        val payload = JSONObject().put("roomCode", code).toString().toByteArray()
+        io.execute {
+            try {
+                val body = JSONObject(String(http(base + "/api/meetings/join", "POST", payload, token), Charsets.UTF_8))
+                runOnUiThread { startMeeting(body.getString("roomCode")) }
+            } catch (e: Exception) { runOnUiThread { toast("Could not join: " + e.message) } }
+        }
+    }
+
+    private fun startMeeting(room: String) {
+        try {
+            val meetingHost = URL((prefs.getString("jitsiServer", "https://meet.jit.si") ?: "https://meet.jit.si").trimEnd("/") + "/")
+            val options = JitsiMeetConferenceOptions.Builder()
+                .setServerURL(meetingHost)
+                .setRoom("aao-team-" + room.lowercase())
+                .setSubject("Team Work support")
+                .setFeatureFlag("welcomepage.enabled", false)
+                .setFeatureFlag("chat.enabled", false)
+                .setFeatureFlag("screensharing.enabled", true)
+                .build()
+            JitsiMeetActivity.launch(this, options)
+        } catch (e: Exception) { toast("Could not start meeting: " + e.message) }
+    }
     private fun sendHeartbeat() {
         val base = (prefs.getString("server", "") ?: "").trimEnd('/')
         val auth = token ?: return
