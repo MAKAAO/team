@@ -1,18 +1,28 @@
 # Team Work
 
-Team-only file sharing and remote support for AAO staff.
+Team-only Android file sharing and device support for the AAO team.
 
-## Components
-- Staff Android app: sign in, show online presence, choose files to upload/share, and accept support sessions.
-- Admin Android app: view team status and shared files, download files, and request a support session.
-- Server: authentication, role checks, file storage, presence, call signaling, and session audit.
-- Windows desktop agent: separate installer for staff PCs/laptops; an Android APK cannot run on desktop operating systems.
+## What is in this first build
 
-## Privacy and Android limits
-Android asks the staff member to approve screen capture for each session. Gallery files are selected by the staff member. Remote control can only run during an accepted support session after the user manually enables Android Accessibility access. The app shows a persistent session indicator and a stop control. The app does not silently copy contacts, answer cellular calls, or start screen capture.
+- Staff APK: signs in, reports its device online while the app is open, and uploads files the staff member selects.
+- Admin APK: signs in, creates staff accounts, checks online devices, and downloads team files.
+- Server: authenticates admin/staff roles, stores uploaded files and presence records, and supplies the API.
+- GitHub Actions: builds separate staff and admin debug APKs.
 
-## Build status
-This repository was empty when setup began. The first milestone is the installable Android app pair and server source. A reachable HTTPS server and TURN relay are required for real-time use across the internet. GitHub Actions will build debug APKs after the Android source is added.
+The Android APKs do not install on PCs or laptops. A separate Windows desktop agent is not included yet.
 
-## Local server
-See `server/README.md` for deployment and configuration instructions.
+## Not included in this build
+
+Live screen sharing, voice/video calling, and remote touch control are still to be implemented. The current APKs should be used to try the account, presence, and file-sharing flow only.
+
+## Build artifacts
+
+Open the latest successful run under Actions and download the team-work-debug-apks artifact. Each artifact ZIP contains:
+- staff/debug/app-staff-debug.apk
+- admin/debug/app-admin-debug.apk
+
+## Server and first test
+
+Deploy the Node server from the server folder behind HTTPS. Set a strong JWT_SECRET, ADMIN_EMAIL, and ADMIN_PASSWORD, and preserve the server data volume. Sign in to the Admin APK using those credentials, create a staff account, then sign in to the Staff APK and choose a file to share. Enter the server's HTTPS address on both apps.
+
+See server/README.md for Docker setup and API details. The server must be deployed before the APKs can exchange files over the internet.
