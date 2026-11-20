@@ -2,8 +2,12 @@ package com.aao.team
 
 import android.app.Activity
 import android.content.Intent
+import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.OpenableColumns
 import android.view.Gravity
 import android.widget.*
 import org.json.JSONArray
@@ -15,6 +19,7 @@ import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
+    private val handler = Handler(Looper.getMainLooper())
     private val prefs by lazy { getSharedPreferences("team", MODE_PRIVATE) }
     private lateinit var root: LinearLayout
     private lateinit var status: TextView
@@ -25,12 +30,28 @@ class MainActivity : Activity() {
     private var token: String? = null
     private val isAdmin get() = BuildConfig.APP_ROLE == "admin"
     private val pickFile = 501
+    private val presenceLoop = object : Runnable {
+        override fun run() {
+            if (!isAdmin && token != null) sendHeartbeat()
+            handler.postDelayed(this, 30000)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         token = prefs.getString("token", null)
         draw()
         if (token != null) loadDashboard()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        handler.post(presenceLoop)
+    }
+
+    override fun onPause() {
+        handler.removeCallbacks(presenceLoop)
+        super.onPause()
     }
 
     private fun draw() {
@@ -130,17 +151,35 @@ class MainActivity : Activity() {
                 }
                 startActivityForResult(intent, pickFile)
             })
-            content.addView(note("Only files you choose are shared."))
-            content.addView(note("Screen sharing, voice/video calls, and remote control are not in this first APK build."))
+            content.addView(note("Only files you choose are shared with the team."))
+            content.addView(note("Screen sharing, calls, and remote control are not enabled in this APK yet."))
+            sendHeartbeat()
+        } else {
+            content.addView(note("Add a staff account"))
+            val staffEmail = edit("Staff email", "")
+            val staffPassword = edit("Temporary password (12+ characters)", "").apply { inputType = 129 }
+            content.addView(staffEmail)
+            content.addView(staffPassword)
+            content.addView(button("Create staff account", 0xFFF05A28.toInt()) {
+                createStaff(staffEmail.text.toString().trim(), staffPassword.text.toString())
+            })
+            content.addView(note("Team devices"))
             io.execute {
                 try {
-                    val payload = JSONObject().put("deviceId", android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID))
-                        .put("label", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).toString().toByteArray()
-                    http(base + "/api/heartbeat", "POST", payload, auth)
-                } catch (_: Exception) {}
+                    val devices = JSONArray(String(http(base + "/api/devices", "GET", null, auth), Charsets.UTF_8))
+                    runOnUiThread {
+                        if (devices.length() == 0) content.addView(note("No device check-ins yet."))
+                        for (i in 0 until devices.length()) {
+                            val item = devices.getJSONObject(i)
+                            val state = if (item.optBoolean("online")) "ONLINE" else "OFFLINE"
+                            content.addView(note(state + "  ·  " + item.optString("email") + "  ·  " + item.optString("label")))
+                        }
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread { content.addView(note("Device list unavailable: " + e.message)) }
+                }
             }
-        } else {
-            content.addView(note("Team files"))
+            content.addView(note("Shared team files"))
             io.execute {
                 try {
                     val files = JSONArray(String(http(base + "/api/files", "GET", null, auth), Charsets.UTF_8))
@@ -157,10 +196,39 @@ class MainActivity : Activity() {
                     runOnUiThread { status.text = "Could not load team files: " + e.message }
                 }
             }
-            content.addView(button("Refresh team files", 0xFF152442.toInt()) { loadDashboard() })
-            content.addView(note("Device presence and live support are planned for the next build."))
+            content.addView(note("Live screen sessions and calls are planned for the next build."))
         }
         status.text = "Connected to the team server"
+    }
+
+    private fun createStaff(email: String, password: String) {
+        if (email.isBlank() || password.length < 12) {
+            toast("Enter a staff email and a temporary password of at least 12 characters.")
+            return
+        }
+        val base = (prefs.getString("server", "") ?: "").trimEnd('/')
+        val payload = JSONObject().put("email", email).put("password", password).toString().toByteArray()
+        io.execute {
+            try {
+                http(base + "/api/staff", "POST", payload, token)
+                runOnUiThread { toast("Staff account created. Share the temporary password securely.") }
+            } catch (e: Exception) {
+                runOnUiThread { toast("Could not create account: " + e.message) }
+            }
+        }
+    }
+
+    private fun sendHeartbeat() {
+        val base = (prefs.getString("server", "") ?: "").trimEnd('/')
+        val auth = token ?: return
+        if (!base.startsWith("https://")) return
+        val payload = JSONObject()
+            .put("deviceId", android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID))
+            .put("label", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL)
+            .toString().toByteArray()
+        io.execute {
+            try { http(base + "/api/heartbeat", "POST", payload, auth) } catch (_: Exception) {}
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -173,7 +241,7 @@ class MainActivity : Activity() {
     }
 
     private fun upload(uri: Uri) {
-        val name = uri.lastPathSegment?.substringAfterLast('/') ?: "shared-file"
+        val name = displayName(uri)
         val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return
         val boundary = "TeamBoundary" + System.currentTimeMillis()
         val body = ByteArrayOutputStream().apply {
@@ -191,6 +259,16 @@ class MainActivity : Activity() {
                 runOnUiThread { status.text = "Upload failed: " + e.message }
             }
         }
+    }
+
+    private fun displayName(uri: Uri): String {
+        var result = "shared-file"
+        val cursor: Cursor? = contentResolver.query(uri, null, null, null, null)
+        cursor?.use {
+            val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (index >= 0 && it.moveToFirst()) result = it.getString(index) ?: result
+        }
+        return result
     }
 
     private fun download(id: String, name: String) {
