@@ -1,0 +1,29 @@
+{
+  "name": "team-work-desktop",
+  "version": "0.2.0",
+  "description": "Consent-based Team Work meetings and desktop support",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "build": "node esbuild.js",
+    "dist:win": "npm run build && electron-builder --win nsis --x64"
+  },
+  "dependencies": {
+    "@jitsi/electron-sdk": "10.0.6"
+  },
+  "devDependencies": {
+    "electron": "43.8.3",
+    "electron-builder": "26.0.12",
+    "esbuild": "0.25.12"
+  },
+  "build": {
+    "appId": "tech.aao.teamwork",
+    "productName": "Team Work",
+    "asar": true,
+    "npmRebuild": false,
+    "asarUnpack": ["**/*.node"],
+    "files": ["main.js", "preload.bundle.js", "renderer.bundle.js", "index.html", "package.json"],
+    "win": { "target": ["nsis"], "artifactName": "Team-Work-Setup-${version}.${ext}" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+  }
+}

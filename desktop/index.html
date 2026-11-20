@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; script-src 'self' https:; style-src 'self' 'unsafe-inline' https:; connect-src https: wss:; frame-src https:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Team Work</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px Segoe UI, Arial, sans-serif; background: #f6f7fb; color: #152442; }
+    header { background: #152442; color: white; padding: 18px 26px; display:flex; justify-content:space-between; align-items:center; }
+    header strong { font-size: 20px; letter-spacing: .4px; }
+    main { max-width: 980px; margin: 28px auto; padding: 0 18px; }
+    .card { background: white; border:1px solid #e3e7ef; border-radius: 14px; padding: 22px; margin-bottom: 18px; box-shadow: 0 5px 18px #1524420c; }
+    h2 { margin: 0 0 14px; font-size: 19px; }
+    label { display:block; color:#596579; margin: 11px 0 6px; font-size:13px; }
+    input,select { width:100%; border:1px solid #ccd3df; border-radius:8px; padding:11px 12px; font-size:15px; color:#152442; background:white; }
+    button { border:0; border-radius:8px; padding:11px 16px; color:white; background:#f05a28; font-weight:650; font-size:14px; cursor:pointer; margin: 12px 8px 0 0; }
+    button.secondary { background:#243c68; }
+    button.light { background:#707a8c; }
+    #status { color:#596579; min-height:22px; }
+    #meeting { display:none; height:70vh; min-height:480px; border:1px solid #d9deea; border-radius:12px; overflow:hidden; }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .hidden { display:none; }
+    #roomCode { color:#f05a28; font-weight:800; font-size:22px; letter-spacing:1.6px; overflow-wrap:anywhere; }
+    .hint { color:#657187; font-size:13px; line-height:1.5; }
+  </style>
+</head>
+<body>
+  <header><strong>TEAM WORK</strong><span>AAO Team Support</span></header>
+  <main>
+    <section class="card" id="connectCard">
+      <h2>Connect to your team</h2>
+      <div class="row">
+        <div><label>Team API (HTTPS)</label><input id="server" value="https://team.example.com"></div>
+        <div><label>Meeting server</label><input id="jitsi" value="https://meet.jit.si"></div>
+      </div>
+      <label>Use this app as</label>
+      <select id="role"><option value="staff">Staff device</option><option value="admin">Admin</option></select>
+      <div id="staffFields">
+        <label>Your name</label><input id="name" placeholder="Staff name">
+        <label>One-time pairing code from admin</label><input id="pairCode" placeholder="10-character code">
+      </div>
+      <div id="adminFields" class="hidden">
+        <label>Admin email</label><input id="email" type="email">
+        <label>Admin password</label><input id="password" type="password">
+      </div>
+      <button id="connect">Connect</button>
+      <p class="hint">Screen sharing uses the meeting controls. A separate Windows dialog asks before remote control starts.</p>
+    </section>
+
+    <section class="card hidden" id="roomCard">
+      <h2>Team meeting</h2>
+      <p id="roomCode"></p>
+      <div id="adminRoomControls">
+        <button id="createRoom">Create support room</button>
+      </div>
+      <div id="staffRoomControls" class="hidden">
+        <label>Meeting code from admin</label><input id="joinCode" placeholder="Enter the code">
+        <button class="secondary" id="joinRoom">Join call / screen share</button>
+      </div>
+      <button class="light" id="leave">Sign out</button>
+      <p id="status">Connected</p>
+    </section>
+    <section id="meeting"></section>
+  </main>
+  <script src="renderer.bundle.js"></script>
+</body>
+</html>
